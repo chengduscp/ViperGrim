@@ -3,6 +3,8 @@
  A simple client in the internet domain using TCP
  Usage: ./client hostname port (./client 192.168.0.151 10000)
  */
+#include "packet_header.h"
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -10,6 +12,7 @@
 #include <netdb.h>      // define structures like hostent
 #include <stdlib.h>
 #include <strings.h>
+
 
 void error(char *msg)
 {

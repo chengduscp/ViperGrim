@@ -1,5 +1,7 @@
 
 /*Michael Chan CS118 Project 1*/
+#include "packet_header.h"
+
 #include <errno.h>
 #include <netinet/in.h>
 #include <signal.h>
