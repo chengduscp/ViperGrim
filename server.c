@@ -32,81 +32,111 @@ static int inline min(int a, int b)
   else
     return b;
 }
-/* this file reads the filecontents and stores it in fileBuf*/
-static int inline getContents(char* filename, int* fSize, int socket)
-{
-  
-  FILE *f = fopen(filename, "rb");
-  int tempSize = *fSize;
-  int readSize;
-  int bytesRead;
-  int interval;
-  int writeBytes;
-  char fBuf[FILE_INTERVAL];
-  if(f)
-  {
-    while(tempSize > 0)
-    {
-      interval  = min(tempSize, FILE_INTERVAL);
-      bytesRead  = fread(fBuf, 1, interval,f);
-      writeBytes = send(socket, fBuf, interval, 0);
-      if(writeBytes < 0)
-        error("Writing to socket");
-      tempSize  -= interval;
-    }
-    /*if(fileBuf)
-    {
-      *fSize = fread(fileBuf, 1, *fSize, f);
-    }*/
-    fclose(f);
-    return 1;
-  }
-  else
-    return 0;
+
+typedef struct rdt_t {
+  // Client/Server addresses
+  struct sockaddr_in server, client;
+  socklen_t clientLen;
+
+  // File stuff
+  int sockfd, newsockfd;
+  char *fileName;
+
+  // Sending headers and payload pointers
+  packet_header_t *send_header;
+  char *send_payload;
+
+  // Buffers
+  char *fBuf, *initBuf;
+  int fBufSize, initBufSize;
+} rdt_t;
+
+void initializeRDT(rdt_t *rdt, char *fBuf, char *initBuf, int fBufSize, int initBufSize) {
+  memset(rdt, sizeof(rdt_t), 0);
+  rdt->fBuf = &fBuf[0];
+  rdt->initBuf = &initBuf[0];
+  rdt->fBufSize = fBufSize;
+  rdt->initBufSize = initBufSize;
+  memset(fBuf, 0, fBufSize);
+  rdt->send_header = (packet_header_t *)&fBuf[0]; // header always points to the beginning of the data packet
+  rdt->send_payload = getPayload(fBuf, fBufSize);
 }
+
+void getInitialUDPSocket(rdt_t *rdt, int portno) {
+  rdt->clientLen = sizeof(rdt->client);
+  rdt->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if(rdt->sockfd < 0)
+    error("SOCKET");
+  
+  memset((char *) &rdt->server, 0, sizeof(rdt->server));
+  rdt->server.sin_family = AF_INET;
+  rdt->server.sin_addr.s_addr = INADDR_ANY;
+  rdt->server.sin_port=htons(portno);
+
+  if (bind(rdt->sockfd, (struct sockaddr *)&rdt->server, sizeof(rdt->server)) < 0)
+    error("BIND ERROR");
+}
+
+// Get initial connection
+void getInitialClientPacket(rdt_t *rdt) {
+  int n;
+  packet_header_t *recieve_header;
+  char *recieve_payload;
+
+  // Read from connection
+  memset(rdt->initBuf, 0, sizeof(rdt->initBuf));
+  recieve_header = (packet_header_t *)&rdt->initBuf[0]; // header always points to the beginning of the data packet
+  recieve_payload = getPayload(rdt->initBuf, rdt->initBufSize);
+
+  n = recvfrom(rdt->sockfd, rdt->initBuf, rdt->initBufSize, 0, (struct sockaddr*)&rdt->client, &rdt->clientLen);
+  if(n < 0)
+    error("ERROR on read");
+
+  // Check if valid header
+  if (recieve_header->type != INIT) {
+    // recieve_payload
+    error("ERROR not valid init");
+  }
+
+  printHeader(recieve_header);
+  rdt->fileName = (char *)malloc(recieve_header->len + 1);
+  memcpy(rdt->fileName, recieve_payload, recieve_header->len);
+  printf("from client: %s\n", recieve_payload);
+
+  // Acknowledge INIT (say we have made connection)  
+  // We don't have to worry about security, so we just pick 0 as our starting point
+  rdt->send_header->type = ACK;
+  rdt->send_header->ack = 0;
+  rdt->send_header->seq = 0;
+  rdt->send_header->len = 0;
+  rdt->send_header->cwnd = recieve_header->cwnd;
+
+  sendto(rdt->sockfd, rdt->send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&rdt->client, rdt->clientLen);
+}
+
 
 int main(int argc, char *argv[])
 {
-  int sockfd, newsockfd, portno, pid, rc, maxfd;
-  struct sockaddr_in server, client;
-  socklen_t clientLen;  
-  int end_server = 0;
+  // int end_server = 0;
   int i, randNo;
   long size;
   struct stat st;
-  char *fileName;
   FILE *f;
   char fBuf[FILE_INTERVAL];
   int interval, bytesRead, writeBytes, n;
   char ackBuf[4];
   char initBuf[1024];
-
-  packet_header_t *recieve_header;
-  char *recieve_payload;
-  packet_header_t *send_header;
-  char *send_payload;
-
-  char ack[] = "ACK";
   struct timeval timeout;
   float probIgnore, probCorrupt, success;
+  rdt_t rdt;
+
   timeout.tv_sec = 0;
   timeout.tv_usec = 100000;
   if(argc < 2)
-  {
     fprintf(stderr, "ERROR, no port provided\n");
-  }
-    
-  clientLen = sizeof(client);
-  /* initialize UDP socket */
-  sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-  if(sockfd < 0)
-    error("SOCKET");
-  
-  memset((char *) &server, 0, sizeof(server));
-  portno = atoi(argv[1]);
-  server.sin_family = AF_INET;
-  server.sin_addr.s_addr = INADDR_ANY;
-  server.sin_port=htons(portno);
+
+  // Initialize RDT data structure variables
+  initializeRDT(&rdt, fBuf, initBuf, sizeof(fBuf), sizeof(initBuf));
 
   probIgnore = atof(argv[2]);
   probCorrupt = atof(argv[3]);
@@ -117,56 +147,22 @@ int main(int argc, char *argv[])
   if(probCorrupt < 0.0 || probCorrupt > 1.0)
     probCorrupt = 0.0;
 
-  if (bind(sockfd, (struct sockaddr *)&server, sizeof(server)) < 0)
-    error("BIND ERROR");
+  /* initialize UDP socket */
+  getInitialUDPSocket(&rdt, atoi(argv[1]));
 
-  // Read from connection
-  memset(fBuf, 0, sizeof(fBuf));
-  send_header = (packet_header_t *)&fBuf[0]; // header always points to the beginning of the data packet
-  send_payload = getPayload(fBuf, sizeof(fBuf));
+  getInitialClientPacket(&rdt);
 
-  memset(initBuf, 0, sizeof(initBuf));
-  recieve_header = (packet_header_t *)&initBuf[0]; // header always points to the beginning of the data packet
-  recieve_payload = getPayload(initBuf, sizeof(initBuf));
-
-
-  n = recvfrom(sockfd, initBuf, sizeof(initBuf), 0, (struct sockaddr*)&client, &clientLen);
-  if(n < 0)
-    error("ERROR on read");
-
-  // Check if valid header
-  if (recieve_header->type != INIT) {
-    // recieve_payload
-    error("ERROR not valid init");
-  }
-  printf("Got here 2 %d\n", n);
-  printHeader(recieve_header);
-  fileName = (char *)malloc(recieve_header->len + 1);
-  printf("Got here 1 %p %d\n", fileName, recieve_header->len);
-  memcpy(fileName, recieve_payload, recieve_header->len);
-  printf("Got here 0\n");
-  printf("from client: %s\n", recieve_payload);
-
-  // We don't have to worry about security, so we just pick 0 as our starting point
-  send_header->type = ACK;
-  send_header->ack = 0;
-  send_header->seq = 0;
-  send_header->len = 0;
-  send_header->cwnd = recieve_header->cwnd;
-
-  sendto(sockfd, send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&client, clientLen);
-
-  if(newsockfd < 0)
+  if(rdt.newsockfd < 0)
     error("ERROR on accept");
-  f = fopen(fileName, "rb");
+  f = fopen(rdt.fileName, "rb");
   if(!f)
   {
-    send_header->type = NO_SUCH_FILE;
-    send_header->ack = 0;
-    send_header->seq = 0;
-    send_header->len = 0;
-    send_header->cwnd = 0;
-    sendto(sockfd, send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&client, clientLen);
+    rdt.send_header->type = NO_SUCH_FILE;
+    rdt.send_header->ack = 0;
+    rdt.send_header->seq = 0;
+    rdt.send_header->len = 0;
+    rdt.send_header->cwnd = 0;
+    sendto(rdt.sockfd, rdt.send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&rdt.client, rdt.clientLen);
     error("ERROR could not find file");
   }
 
@@ -186,7 +182,7 @@ int main(int argc, char *argv[])
     printf("success = %f\n", success);
     if(success > probIgnore && success > probCorrupt)
     {
-      writeBytes = sendto(sockfd, fBuf, interval, 0, (struct sockaddr *)&client, clientLen);
+      writeBytes = sendto(rdt.sockfd, rdt.fBuf, interval, 0, (struct sockaddr *)&rdt.client, rdt.clientLen);
       if(writeBytes < 0)
         error("ERROR on WRITE");
     }
@@ -195,10 +191,10 @@ int main(int argc, char *argv[])
       printf("fail to send\n");
     }
   
-    if(setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+    if(setsockopt(rdt.sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
       error("ERROR SETTING TIMEOUT");
 
-    n = recvfrom(sockfd, ackBuf, 4, 0, (struct sockaddr *)&client, &clientLen);
+    n = recvfrom(rdt.sockfd, ackBuf, 4, 0, (struct sockaddr *)&rdt.client, &rdt.clientLen);
     if(n >= 0)
     {
       printf("from client2: %s\n", ackBuf);
@@ -208,7 +204,7 @@ int main(int argc, char *argv[])
       printf("timeout\n");
     }
   }
-  close(sockfd);
+  close(rdt.sockfd);
 
   return 0;
 
