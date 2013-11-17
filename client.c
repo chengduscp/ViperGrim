@@ -97,12 +97,13 @@ int main(int argc, char *argv[])
     recieve_payload = getPayload(buffer, sizeof(buffer));
 
     n = recvfrom(sockfd, buffer, strlen(ack), 0, NULL, NULL);    
-    if(n >= 0)
-    {
-       printf("from server: %s\n", buffer);
-    }
-    else
+    if(n < 0)
        error("ERROR on init");
+
+    if(recieve_header->type != ACK)
+      error("ERROR did not get ACK");
+
+    printf("from server: %s\n", recieve_payload);
     memset(buffer,0, 1024);
     
     n = recvfrom(sockfd,buffer,1024, 0, NULL, NULL); //read from the socket

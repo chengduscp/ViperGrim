@@ -74,11 +74,12 @@ int main(int argc, char *argv[])
   int i, randNo;
   long size;
   struct stat st;
+  char *fileName;
   FILE *f;
   char fBuf[FILE_INTERVAL];
   int interval, bytesRead, writeBytes, n;
   char ackBuf[4];
-  char initBuf[5];
+  char initBuf[1024];
 
   packet_header_t *recieve_header;
   char *recieve_payload;
@@ -133,57 +134,78 @@ int main(int argc, char *argv[])
   if(n < 0)
     error("ERROR on read");
 
-  printf("from client: %s\n", initBuf);
   // Check if valid header
   if (recieve_header->type != INIT) {
     // recieve_payload
     error("ERROR not valid init");
   }
+  printf("Got here 2 %d\n", n);
+  printHeader(recieve_header);
+  fileName = (char *)malloc(recieve_header->len + 1);
+  printf("Got here 1 %p %d\n", fileName, recieve_header->len);
+  memcpy(fileName, recieve_payload, recieve_header->len);
+  printf("Got here 0\n");
+  printf("from client: %s\n", recieve_payload);
 
-  sendto(sockfd, ack, sizeof(ack), 0, (struct sockaddr*)&client, clientLen);
+  // We don't have to worry about security, so we just pick 0 as our starting point
+  send_header->type = ACK;
+  send_header->ack = 0;
+  send_header->seq = 0;
+  send_header->len = 0;
+  send_header->cwnd = recieve_header->cwnd;
 
+  sendto(sockfd, send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&client, clientLen);
 
   if(newsockfd < 0)
-    error("ERROR on accept"); 
-  f = fopen("sample.html", "rb");
-  if(f)
+    error("ERROR on accept");
+  f = fopen(fileName, "rb");
+  if(!f)
   {
-    stat("sample.html", &st);
-    size = (long) st.st_size;
-    interval = min(size, FILE_INTERVAL);
-    bytesRead = fread(fBuf, 1, interval,f);
-    n = -1;
-  
-    while(n < 0)
-    {
-      srand(time(NULL));
-      randNo = rand() % 100;
-      printf("randNo = %d\n", randNo);
-      success = ((float)randNo)/100;
-      printf("success = %f\n", success);
-      if(success > probIgnore && success > probCorrupt)
-      {
-        writeBytes = sendto(sockfd, fBuf, interval, 0, (struct sockaddr *)&client, clientLen);
-        if(writeBytes < 0)
-          error("ERROR on WRITE");
-      }
-      else
-      {
-        printf("fail to send\n");
-      }
-    
-      if(setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-        error("ERROR SETTING TIMEOUT");
+    send_header->type = NO_SUCH_FILE;
+    send_header->ack = 0;
+    send_header->seq = 0;
+    send_header->len = 0;
+    send_header->cwnd = 0;
+    sendto(sockfd, send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&client, clientLen);
+    error("ERROR could not find file");
+  }
 
-      n = recvfrom(sockfd, ackBuf, 4, 0, (struct sockaddr *)&client, &clientLen);
-      if(n >= 0)
-      {
-        printf("from client2: %s\n", ackBuf);
-      }
-      else
-      {
-        printf("timeout\n");
-      }
+
+  stat("sample.html", &st);
+  size = (long) st.st_size;
+  interval = min(size, FILE_INTERVAL);
+  bytesRead = fread(fBuf, 1, interval,f);
+  n = -1;
+
+  while(n < 0)
+  {
+    srand(time(NULL));
+    randNo = rand() % 100;
+    printf("randNo = %d\n", randNo);
+    success = ((float)randNo)/100;
+    printf("success = %f\n", success);
+    if(success > probIgnore && success > probCorrupt)
+    {
+      writeBytes = sendto(sockfd, fBuf, interval, 0, (struct sockaddr *)&client, clientLen);
+      if(writeBytes < 0)
+        error("ERROR on WRITE");
+    }
+    else
+    {
+      printf("fail to send\n");
+    }
+  
+    if(setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+      error("ERROR SETTING TIMEOUT");
+
+    n = recvfrom(sockfd, ackBuf, 4, 0, (struct sockaddr *)&client, &clientLen);
+    if(n >= 0)
+    {
+      printf("from client2: %s\n", ackBuf);
+    }
+    else
+    {
+      printf("timeout\n");
     }
   }
   close(sockfd);

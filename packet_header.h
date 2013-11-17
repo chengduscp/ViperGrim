@@ -36,4 +36,30 @@ char *getPayload(char *data, uint32_t size) {
   return (data + sizeof(packet_header_t));
 }
 
+void printHeader(packet_header_t *h) {
+  printf("Header:\n");
+  switch(h->type) {
+    case INIT:
+      printf("INIT\n");
+      break;
+    case FIN:
+      printf("FIN\n");
+      break;
+    case ACK:
+      printf("ACK\n");
+      break;
+    case DATA:
+      printf("DATA\n");
+      break;
+    case NO_SUCH_FILE:
+      printf("NO_SUCH_FILE\n");
+      break;
+    case UNKNOWN:
+      printf("UNKNOWN\n");
+      break;
+  }
+  printf("seq: %u, ack: %u, cwnd: %u, len: %u, checksum: %u\n",
+    h->seq, h->ack, h->cwnd, h->len, h->checksum);
+}
+
 #endif
