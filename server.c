@@ -128,6 +128,7 @@ int main(int argc, char *argv[])
   char initBuf[1024];
   struct timeval timeout;
   float probIgnore, probCorrupt, success;
+  int tempSize;
   rdt_t rdt;
 
   timeout.tv_sec = 0;
@@ -167,43 +168,58 @@ int main(int argc, char *argv[])
   }
 
 
-  stat("sample.html", &st);
+  stat(rdt.fileName, &st);
   size = (long) st.st_size;
-  interval = min(size, FILE_INTERVAL);
-  bytesRead = fread(fBuf, 1, interval,f);
-  n = -1;
-
-  while(n < 0)
+  tempSize = size;
+  while(tempSize > 0)
   {
-    srand(time(NULL));
-    randNo = rand() % 100;
-    printf("randNo = %d\n", randNo);
-    success = ((float)randNo)/100;
-    printf("success = %f\n", success);
-    if(success > probIgnore && success > probCorrupt)
-    {
-      writeBytes = sendto(rdt.sockfd, rdt.fBuf, interval, 0, (struct sockaddr *)&rdt.client, rdt.clientLen);
-      if(writeBytes < 0)
-        error("ERROR on WRITE");
-    }
-    else
-    {
-      printf("fail to send\n");
-    }
+    interval = min(tempSize, (FILE_INTERVAL-sizeof(packet_header_t)));
+    bytesRead = fread(rdt.send_payload, 1, interval,f);
+    n = -1;
   
-    if(setsockopt(rdt.sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-      error("ERROR SETTING TIMEOUT");
+    while(n < 0)
+    {
+      srand(time(NULL));
+      randNo = rand() % 100;
+      printf("randNo = %d\n", randNo);
+      success = ((float)randNo)/100;
+      printf("success = %f\n", success);
+      if(success > probIgnore && success > probCorrupt)
+      {
+        writeBytes = sendto(rdt.sockfd, rdt.fBuf, interval+sizeof(packet_header_t), 0, (struct sockaddr *)&rdt.client, rdt.clientLen);
+        if(writeBytes < 0)
+          error("ERROR on WRITE");
+      }
+      else
+      {
+        printf("fail to send\n");
+      }
+    
+      if(setsockopt(rdt.sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+        error("ERROR SETTING TIMEOUT");
 
-    n = recvfrom(rdt.sockfd, ackBuf, 4, 0, (struct sockaddr *)&rdt.client, &rdt.clientLen);
-    if(n >= 0)
-    {
-      printf("from client2: %s\n", ackBuf);
+      n = recvfrom(rdt.sockfd, ackBuf, 4, 0, (struct sockaddr *)&rdt.client, &rdt.clientLen);
+      if(n >= 0)
+      {
+        printf("from client2: %s\n", ackBuf);
+      }
+      else
+      {
+        printf("timeout\n");
+      }
     }
-    else
-    {
-      printf("timeout\n");
-    }
+    tempSize -= interval;
   }
+
+
+  rdt.send_header->type = FIN;
+  rdt.send_header->ack = 0;
+  rdt.send_header->seq = 0;
+  rdt.send_header->len = 0;
+  rdt.send_header->cwnd = 0;
+  sendto(rdt.sockfd, rdt.send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&rdt.client, rdt.clientLen);
+
+  
   close(rdt.sockfd);
 
   return 0;

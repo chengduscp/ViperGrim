@@ -105,16 +105,20 @@ int main(int argc, char *argv[])
 
     printf("from server: %s\n", recieve_payload);
     memset(buffer,0, 1024);
-    
-    n = recvfrom(sockfd,buffer,1024, 0, NULL, NULL); //read from the socket
-    if (n < 0) 
-         error("ERROR reading from socket");
-    else
-    {
-       fwrite(buffer, 1, n, output_file);
-       sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    while(1)
+    {  
+      n = recvfrom(sockfd,buffer,1024, 0, NULL, NULL); //read from the socket
+      if(recieve_header->type == FIN)
+        break;
+      if (n < 0) 
+           error("ERROR reading from socket");
+      else
+      {
+         fwrite(recieve_payload, 1, n-sizeof(packet_header_t), output_file);
+         printf("%s", recieve_payload);
+         sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+      }
     }
-    
     close(sockfd); //close socket
     
     return 0;
