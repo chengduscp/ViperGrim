@@ -3,6 +3,8 @@
  A simple client in the internet domain using TCP
  Usage: ./client hostname port (./client 192.168.0.151 10000)
  */
+#include "packet_header.h"
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -10,6 +12,8 @@
 #include <netdb.h>      // define structures like hostent
 #include <stdlib.h>
 #include <strings.h>
+
+const char OUTPUT_FILE_NAME[] = "out.txt";
 
 void error(char *msg)
 {
@@ -21,13 +25,18 @@ int main(int argc, char *argv[])
 {
     int sockfd; //Socket descriptor
     int portno, n;
+    FILE * output_file;
     struct sockaddr_in serv_addr;
     struct hostent *server; //contains tons of information, including the server's IP address
+    char send_buffer[1024];
     char buffer[1024];
-    char fileBuf[1024];
     float probCorrupt;
     float probIgnore;
     char* fileName; 
+    packet_header_t *recieve_header;
+    char *recieve_payload;
+    packet_header_t *send_header;
+    char *send_payload;
     char ack[] = "ACK";
     char init[] = "INIT";
     int fileIdx;
@@ -51,6 +60,11 @@ int main(int argc, char *argv[])
     probIgnore = atof(argv[4]);
     probCorrupt = atof(argv[5]);
 
+    /* Create the output file */
+    output_file = fopen(OUTPUT_FILE_NAME, "w+");
+    if (output_file == 0)
+      error("ERROR opening output file");
+
     if(probIgnore < 0.0 || probIgnore > 1.0)
        probIgnore = 0.0;
       
@@ -65,29 +79,46 @@ int main(int argc, char *argv[])
     serv_addr.sin_port = htons(portno);
 
     /*initialize connection */
-    sendto(sockfd, init, strlen(init),0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    memset(send_buffer, 0, sizeof(send_buffer));
+    send_header = (packet_header_t *)&send_buffer[0]; // header always points to the beginning of the data packet
+    send_payload = getPayload(send_buffer, sizeof(send_buffer));
+    send_header->type = INIT;
+    send_header->seq = 0;
+    send_header->ack = 0;
+    send_header->cwnd = CWND_DEFAULT;
+    send_header->len = strlen(fileName);
+    memcpy(send_payload, fileName, send_header->len);
+    sendto(sockfd, send_buffer, sizeof(packet_header_t) + send_header->len, 
+           0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+
+    /* Start recieving data */
+    memset(buffer, 0, sizeof(buffer));
+    recieve_header = (packet_header_t *)&buffer[0]; // header always points to the beginning of the data packet
+    recieve_payload = getPayload(buffer, sizeof(buffer));
+
     n = recvfrom(sockfd, buffer, strlen(ack), 0, NULL, NULL);    
-    if(n >= 0)
-    {
-       printf("from server: %s\n", buffer);
-    }
-    else
+    if(n < 0)
        error("ERROR on init");
+
+    if(recieve_header->type != ACK)
+      error("ERROR did not get ACK");
+
+    printf("from server: %s\n", recieve_payload);
     memset(buffer,0, 1024);
-    
-    n = recvfrom(sockfd,buffer,1024, 0, NULL, NULL); //read from the socket
-    if (n < 0) 
-         error("ERROR reading from socket");
-    else
-    {
-       printf("from server2: %s\n", buffer);
-       for(i = 0; i < 1024; i++, fileIdx++)
-       {
-          fileBuf[fileIdx] = buffer[i];
-       }
-       sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    while(1)
+    {  
+      n = recvfrom(sockfd,buffer,1024, 0, NULL, NULL); //read from the socket
+      if(recieve_header->type == FIN)
+        break;
+      if (n < 0) 
+           error("ERROR reading from socket");
+      else
+      {
+         fwrite(recieve_payload, 1, n-sizeof(packet_header_t), output_file);
+         printf("%s", recieve_payload);
+         sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+      }
     }
-    
     close(sockfd); //close socket
     
     return 0;
