@@ -46,6 +46,7 @@ typedef struct rdt_t {
   packet_header_t *send_header;
   char *send_payload;
 
+  packet_header_t *recieve_header;
   // Buffers
   char *fBuf, *initBuf;
   int fBufSize, initBufSize;
@@ -55,6 +56,7 @@ void initializeRDT(rdt_t *rdt, char *fBuf, char *initBuf, int fBufSize, int init
   memset(rdt, sizeof(rdt_t), 0);
   rdt->fBuf = &fBuf[0];
   rdt->initBuf = &initBuf[0];
+  rdt->recieve_header = (packet_header_t *)&initBuf[0];
   rdt->fBufSize = fBufSize;
   rdt->initBufSize = initBufSize;
   memset(fBuf, 0, fBufSize);
@@ -128,7 +130,8 @@ int main(int argc, char *argv[])
   char initBuf[1024];
   struct timeval timeout;
   float probIgnore, probCorrupt, success;
-  int tempSize;
+  int tempSize, temp;
+  int fileIdx;
   rdt_t rdt;
 
   timeout.tv_sec = 0;
@@ -171,12 +174,20 @@ int main(int argc, char *argv[])
   stat(rdt.fileName, &st);
   size = (long) st.st_size;
   tempSize = size;
+  fileIdx = 0;
   while(tempSize > 0)
   {
+    /*if(fileIdx == rdt.recieve_header->ack)*/
+    //for now not sure what to do for the else condition
     interval = min(tempSize, (FILE_INTERVAL-sizeof(packet_header_t)));
+    fileIdx += interval;
     bytesRead = fread(rdt.send_payload, 1, interval,f);
     n = -1;
-  
+    /*swap seq and ack of recieved ack*/
+    temp = rdt.recieve_header->seq;
+    rdt.send_header->seq = rdt.recieve_header->ack;
+    rdt.send_header->ack = temp;
+ 
     while(n < 0)
     {
       srand(time(NULL));
@@ -198,12 +209,8 @@ int main(int argc, char *argv[])
       if(setsockopt(rdt.sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
         error("ERROR SETTING TIMEOUT");
 
-      n = recvfrom(rdt.sockfd, ackBuf, 4, 0, (struct sockaddr *)&rdt.client, &rdt.clientLen);
-      if(n >= 0)
-      {
-        printf("from client2: %s\n", ackBuf);
-      }
-      else
+      n = recvfrom(rdt.sockfd, rdt.initBuf, rdt.initBufSize, 0, (struct sockaddr *)&rdt.client, &rdt.clientLen);
+      if(!(n >= 0 && rdt.recieve_header->type == ACK))
       {
         printf("timeout\n");
       }

@@ -112,11 +112,15 @@ int main(int argc, char *argv[])
         break;
       if (n < 0) 
            error("ERROR reading from socket");
-      else
+      else if(recieve_header->seq == send_header->ack) /* if seq corresponds with previous ack*/
       {
          fwrite(recieve_payload, 1, n-sizeof(packet_header_t), output_file);
-         printf("%s", recieve_payload);
-         sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+         //printf("%s", recieve_payload);
+         send_header->type = ACK;
+         send_header->ack = recieve_header->seq + n - sizeof(packet_header_t);
+         send_header->seq = recieve_header->ack;
+         
+         sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
       }
     }
     close(sockfd); //close socket
