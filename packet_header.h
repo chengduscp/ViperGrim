@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#define PACKET_INTERVAL 1000
+
+
 typedef enum header_type_t {
   INIT, // Initialize connection
   FIN, // Finish connection
@@ -24,11 +27,28 @@ typedef struct packet_header_t {
   uint32_t checksum; // Check corruption of data
 } packet_header_t;
 
-// packet_header_t *getHeader(char *data, uint32_t size) {
-//   if(size < sizeof(packet_header_t))
-//     return 0;
-//   return (packet_header_t *)data;
-// }
+typedef struct packet_t {
+  char buf[1000];
+  int fileLoc;
+  int size;
+  int actualSize;
+
+} packet_t;
+
+typedef struct sendWin_t {
+  packet_t* packets;
+  int n;
+  int start;
+  int end;
+  
+} sendNWin_t;
+packet_header_t *getHeader(char *data, uint32_t size) {
+  if(size < sizeof(packet_header_t))
+    return 0;
+  return (packet_header_t *)data;
+}
+
+
 
 char *getPayload(char *data, uint32_t size) {
   if(size < sizeof(packet_header_t))
