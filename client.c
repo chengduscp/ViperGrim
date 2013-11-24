@@ -28,8 +28,8 @@ int main(int argc, char *argv[])
     FILE * output_file;
     struct sockaddr_in serv_addr;
     struct hostent *server; //contains tons of information, including the server's IP address
-    char send_buffer[1024];
-    char buffer[1024];
+    char send_buffer[1000];
+    char buffer[1000];
     float probCorrupt;
     float probIgnore;
     char* fileName; 
@@ -103,21 +103,24 @@ int main(int argc, char *argv[])
     if(recieve_header->type != ACK)
       error("ERROR did not get ACK");
 
-    printf("from server: %s\n", recieve_payload);
-    memset(buffer,0, 1024);
+    //printf("from server: %s\n", recieve_payload);
+    memset(buffer,0, 1000);
     while(1)
     {  
-      n = recvfrom(sockfd,buffer,1024, 0, NULL, NULL); //read from the socket
+      n = recvfrom(sockfd,buffer,1000, 0, NULL, NULL); //read from the socket
       if(recieve_header->type == FIN)
+      {
+        sleep(2);
         break;
+      }
       if (n < 0) 
            error("ERROR reading from socket");
-      else if(recieve_header->seq == send_header->ack) /* if seq corresponds with previous ack*/
+      else// if(recieve_header->seq == send_header->ack) /* if seq corresponds with previous ack*/
       {
-         fwrite(recieve_payload, 1, n-sizeof(packet_header_t), output_file);
+         fwrite(recieve_payload, 1, recieve_header->len, output_file);
          //printf("%s", recieve_payload);
          send_header->type = ACK;
-         send_header->ack = recieve_header->seq + n - sizeof(packet_header_t);
+         send_header->ack = recieve_header->seq + recieve_header->len;
          send_header->seq = recieve_header->ack;
          
          sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
