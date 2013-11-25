@@ -40,6 +40,7 @@ typedef struct sendWin_t {
   int n;
   int start;
   int end;
+  int *window;
   
 } sendNWin_t;
 packet_header_t *getHeader(char *data, uint32_t size) {
