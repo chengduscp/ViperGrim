@@ -67,7 +67,10 @@ typedef struct rdt_t {
   char *send_payload;
 
   packet_header_t *recieve_header;
- 
+
+  // Random number generator
+  int rand_seed;
+
   // Buffers
   char *fBuf, *initBuf;
   int fBufSize, initBufSize;
@@ -87,6 +90,7 @@ void initializeRDT(rdt_t *rdt, char *fBuf, char *initBuf, int fBufSize, int init
   memset(fBuf, 0, fBufSize);
   rdt->send_header = (packet_header_t *)&fBuf[0]; // header always points to the beginning of the data packet
   rdt->send_payload = getPayload(fBuf, fBufSize);
+  rdt->rand_seed = 0;
 }
 
 void getInitialUDPSocket(rdt_t *rdt, int portno) {
@@ -208,8 +212,11 @@ int main(int argc, char *argv[])
 
   timeout.tv_sec = 6;
   timeout.tv_usec = 0;
-  if(argc < 2)
+  if(argc < 2) {
     fprintf(stderr, "ERROR, no port provided\n");
+    fprintf(stderr, "Usage: server.exe port cwnd probIgnore probCorrupt\n");
+    return;
+  }
 
   signal(SIGALRM, signalHandler);
 
@@ -223,7 +230,7 @@ int main(int argc, char *argv[])
 
   if(probIgnore < 0.0 || probIgnore > 1.0)
     probIgnore = 0.0;
-    
+
   if(probCorrupt < 0.0 || probCorrupt > 1.0)
     probCorrupt = 0.0;
   /* initialize UDP socket */
@@ -233,7 +240,7 @@ int main(int argc, char *argv[])
   
   cwndPack = (cwnd+999) / 1000;
   lastPackSize = cwnd%1000 == 0 ? 1000 : cwnd % 1000;
-  printf("DEBUG: OPen file\n");
+  printf("DEBUG: Open file\n");
   //if(rdt.newsockfd < 0)
     //error("ERROR on accept");
   rdt.f = fopen(rdt.fileName, "rb");
@@ -248,7 +255,6 @@ int main(int argc, char *argv[])
     error("ERROR could not find file");
   }
 
-
   stat(rdt.fileName, &st);
   size = (long) st.st_size;
   rdt.fileSize = size;
@@ -261,9 +267,10 @@ int main(int argc, char *argv[])
   rdt.sendNWin.end   = n-1;
   for(i = 0 ; i < rdt.sendNWin.n ; i++)
   {
-
-    srand(time(NULL));
+    srand(rdt.rand_seed + time(NULL));
+    rdt.rand_seed += rand() % 256;
     randNo = rand() % 100;
+    printf("randNo: %d\n", randNo);
     success = ((float)randNo)/100;
     if(success > probIgnore && success > probCorrupt)
     {
@@ -283,7 +290,6 @@ int main(int argc, char *argv[])
 
   do
   {
-    
     printf("top\n");
     FD_SET(rdt.sockfd, &read_set);
     timeOfSelect = time(NULL);
@@ -296,7 +302,8 @@ int main(int argc, char *argv[])
     {
       printf("TIMEOUT\n");
       timeout_flag = 1;
-      timeout.tv_sec += 8;
+      printf("timeout: %d\n", timeout.tv_sec);
+      timeout.tv_sec = 6;
       FD_SET(rdt.sockfd, &write_set);
     }
     if(FD_ISSET(rdt.sockfd, &read_set))
@@ -310,8 +317,8 @@ int main(int argc, char *argv[])
         if(rdt.fileSize > 0)
           FD_SET(rdt.sockfd, &write_set);
         printf("ACK: %d\n", rdt.recieve_header->ack);
-        lastAcked = lastAcked++; 
-        lastAcked = lastAcked % rdt.sendNWin.n;
+        lastAcked = lastAcked++;
+        lastAcked = lastAcked;// % rdt.sendNWin.n;
         rdt.sendNWin.start = (rdt.sendNWin.start+1)%rdt.sendNWin.n;
         //not sure if this is where i should sent end
         rdt.sendNWin.end = (rdt.sendNWin.end+1)%rdt.sendNWin.n;
@@ -335,9 +342,10 @@ int main(int argc, char *argv[])
         printf("sending N packets\n");
         for(i = 0; i < rdt.sendNWin.n; i++)
         {
-           
-          srand(time(NULL));
+          srand(rdt.rand_seed + time(NULL));
+          rdt.rand_seed += rand() % 256;
           randNo = rand() % 100;
+          printf("randNo: %d\n", randNo);
           success = ((float)randNo)/100;
 
           if(success > probIgnore && success > probCorrupt)
@@ -379,8 +387,10 @@ int main(int argc, char *argv[])
         rdt.fileIdx += interval;
         printf("rdt.fileIdx = %d\n", rdt.fileIdx);
 
-        srand(time(NULL));
+        srand(rdt.rand_seed + time(NULL));
+        rdt.rand_seed += rand() % 256;
         randNo = rand() % 100;
+        printf("randNo: %d\n", randNo);
         success = ((float)randNo)/100;
 
         if(success > probIgnore && success > probCorrupt)
@@ -397,7 +407,7 @@ int main(int argc, char *argv[])
         }
 
         FD_CLR(rdt.sockfd, &write_set);
-        sleep(1);
+        // sleep(1);
       }
 //      if(timeout_flag == 1)
 //        timeout_flag = 0;

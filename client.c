@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
     int fileIdx;
     int i;
     if (argc < 3) {
-       fprintf(stderr,"usage %s hostname port\n", argv[0]);
+       fprintf(stderr,"usage %s hostname port filename probIgnore probCorrupt\n", argv[0]);
        exit(0);
     }
   
@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
        probCorrupt = 0.0;
 
     printf("probCorrupt = %f, probIgnore = %f", probCorrupt, probIgnore);
-    
+
     memset((char *) &serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET; //initialize server's address
     bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
@@ -103,7 +103,6 @@ int main(int argc, char *argv[])
     if(recieve_header->type != ACK)
       error("ERROR did not get ACK");
 
-    //printf("from server: %s\n", recieve_payload);
     memset(buffer,0, 1000);
     while(1)
     {  
