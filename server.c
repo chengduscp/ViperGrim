@@ -16,10 +16,13 @@
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
-#define BUFF_SIZE 1024
-#define FILE_INTERVAL 1000
 #include <sys/types.h>
 #include <ctype.h>
+
+// Constants
+#define TIMEOUT_INTERVAL 6
+#define BUFF_SIZE 1024
+#define FILE_INTERVAL 1000
 
 void error(char *msg)
 {
@@ -210,7 +213,7 @@ int main(int argc, char *argv[])
   fd_set read_set, write_set;
 
 
-  timeout.tv_sec = 6;
+  timeout.tv_sec = TIMEOUT_INTERVAL;
   timeout.tv_usec = 0;
   if(argc < 2) {
     fprintf(stderr, "ERROR, no port provided\n");
@@ -237,12 +240,13 @@ int main(int argc, char *argv[])
   getInitialUDPSocket(&rdt, atoi(argv[1]));
 
   getInitialClientPacket(&rdt);
-  
+
+  // Get window of rdt object ready
   cwndPack = (cwnd+999) / 1000;
   lastPackSize = cwnd%1000 == 0 ? 1000 : cwnd % 1000;
-  printf("DEBUG: Open file\n");
-  //if(rdt.newsockfd < 0)
-    //error("ERROR on accept");
+
+  // Get the file the client sent
+  printf("Opening file...\n");
   rdt.f = fopen(rdt.fileName, "rb");
   if(!rdt.f)
   {
@@ -254,14 +258,13 @@ int main(int argc, char *argv[])
     sendto(rdt.sockfd, rdt.send_header, sizeof(packet_header_t), 0, (struct sockaddr*)&rdt.client, rdt.clientLen);
     error("ERROR could not find file");
   }
-
   stat(rdt.fileName, &st);
   size = (long) st.st_size;
   rdt.fileSize = size;
 
+  // Get the connection open
   FD_ZERO(&read_set);
   FD_ZERO(&write_set);
-  printf("DEBUG readCwndBytes\n");
   readCwndBytes(&rdt, cwndPack, lastPackSize);
   rdt.sendNWin.start = 0;
   rdt.sendNWin.end   = n-1;
@@ -270,27 +273,29 @@ int main(int argc, char *argv[])
     srand(rdt.rand_seed + time(NULL));
     rdt.rand_seed += rand() % 256;
     randNo = rand() % 100;
-    printf("randNo: %d\n", randNo);
     success = ((float)randNo)/100;
+    printf("Ignore: %.2f vs %.2f\n", success, probIgnore);
+    printf("Corruption: %.2f vs %.2f\n", success, probCorrupt);
+
+    // Check if packet recieved
     if(success > probIgnore && success > probCorrupt)
     {
       writeBytes = sendto(rdt.sockfd, rdt.sendNWin.packets[i].buf, 1000, 0, (struct sockaddr *)&rdt.client, rdt.clientLen);
       if(writeBytes < 0)
         error("ERROR on WRITE");
     }
-    else
+    else // Packet 
     {
-
       debug_head = getHeader(rdt.sendNWin.packets[i].buf, 1000);
-      printf("fail to send packet %d\n",debug_head->seq);
+      printf("Fail to send packet %d\n",debug_head->seq);
     }
     
   }
-  printf("DEBUG sending packets\n");
+  printf("Sending packets...\n");
 
   do
   {
-    printf("top\n");
+    printf("Next packet round...\n");
     FD_SET(rdt.sockfd, &read_set);
     timeOfSelect = time(NULL);
     result = select(rdt.sockfd+1, &read_set, &write_set, NULL, &timeout); 
@@ -302,8 +307,7 @@ int main(int argc, char *argv[])
     {
       printf("TIMEOUT\n");
       timeout_flag = 1;
-      printf("timeout: %d\n", timeout.tv_sec);
-      timeout.tv_sec = 6;
+      timeout.tv_sec = TIMEOUT_INTERVAL;
       FD_SET(rdt.sockfd, &write_set);
     }
     if(FD_ISSET(rdt.sockfd, &read_set))
@@ -325,32 +329,29 @@ int main(int argc, char *argv[])
         timeOfUpdate = time(NULL);
         seconds = difftime(timeOfUpdate, timeOfSelect);
         sec_int = seconds;
-        //timeout.tv_sec += 6;
         if(timeout_flag == 1)
         {
-          //timeout.tv_sec += 8;
           timeout_flag = 0;
-          printf("timeout_flag = %d\n", timeout_flag);
         }
       }
     }
     if(FD_ISSET(rdt.sockfd, &write_set))
     {
-      printf("writing\n");
+      printf("Writing packet...\n");
       if(timeout_flag == 1)
       {
-        printf("sending N packets\n");
+        printf("Sending N packets because of timeout...\n");
         for(i = 0; i < rdt.sendNWin.n; i++)
         {
           srand(rdt.rand_seed + time(NULL));
           rdt.rand_seed += rand() % 256;
           randNo = rand() % 100;
-          printf("randNo: %d\n", randNo);
           success = ((float)randNo)/100;
+          printf("Ignore: %.2f vs %.2f\n", success, probIgnore);
+          printf("Corruption: %.2f vs %.2f\n", success, probCorrupt);
 
           if(success > probIgnore && success > probCorrupt)
           {
-
             writeBytes = sendto(rdt.sockfd, rdt.sendNWin.packets[(rdt.sendNWin.start+i)%rdt.sendNWin.n].buf,
                                 1000,0,(struct sockaddr *)&rdt.client, rdt.clientLen);
             debug_head = getHeader(rdt.sendNWin.packets[(rdt.sendNWin.start+i)%rdt.sendNWin.n].buf, 1000);
@@ -371,6 +372,7 @@ int main(int argc, char *argv[])
       }
       if(rdt.fileSize > 0 && timeout_flag == 0)
       {
+        // Get next packet
         sendIdx = lastAcked;
         sendIdx = sendIdx % rdt.sendNWin.n;
         rdt.send_header = getHeader(rdt.sendNWin.packets[sendIdx].buf, 1000);
@@ -385,17 +387,18 @@ int main(int argc, char *argv[])
                           1, interval,rdt.f);
         rdt.fileSize = rdt.fileSize - interval;
         rdt.fileIdx += interval;
-        printf("rdt.fileIdx = %d\n", rdt.fileIdx);
 
+        // Generate random number
         srand(rdt.rand_seed + time(NULL));
         rdt.rand_seed += rand() % 256;
         randNo = rand() % 100;
-        printf("randNo: %d\n", randNo);
         success = ((float)randNo)/100;
+        printf("Ignore: %.2f vs %.2f\n", success, probIgnore);
+        printf("Corruption: %.2f vs %.2f\n", success, probCorrupt);
 
+        // Check for success of sending packet
         if(success > probIgnore && success > probCorrupt)
         {
-
           writeBytes = sendto(rdt.sockfd, rdt.sendNWin.packets[sendIdx].buf,
                               1000,0,(struct sockaddr *)&rdt.client, rdt.clientLen);
           if(writeBytes < 0)
@@ -403,61 +406,16 @@ int main(int argc, char *argv[])
         }
         else
         {
-          printf("fail to send packet %d\n", rdt.send_header->seq);
+          printf("Fail to send packet %d\n", rdt.send_header->seq);
         }
 
+        // Get ready for next packet
         FD_CLR(rdt.sockfd, &write_set);
-        // sleep(1);
-      }
-//      if(timeout_flag == 1)
-//        timeout_flag = 0;
-    }
-
-    
-    #if 0
-    /*if(fileIdx == rdt.recieve_header->ack)*/
-    //for now not sure what to do for the else condition
-    interval = min(tempSize, (FILE_INTERVAL-sizeof(packet_header_t)));
-    fileIdx += interval;
-    bytesRead = fread(rdt.send_payload, 1, interval,rdt.f);
-    n = -1;
-    /*swap seq and ack of recieved ack*/
-    temp = rdt.recieve_header->seq;
-    rdt.send_header->seq = rdt.recieve_header->ack;
-    rdt.send_header->ack = temp;
- 
-    while(n < 0)
-    {
-      srand(time(NULL));
-      randNo = rand() % 100;
-      printf("randNo = %d\n", randNo);
-      success = ((float)randNo)/100;
-      printf("success = %f\n", success);
-      if(success > probIgnore && success > probCorrupt)
-      {
-        writeBytes = sendto(rdt.sockfd, rdt.fBuf, interval+sizeof(packet_header_t), 0, (struct sockaddr *)&rdt.client, rdt.clientLen);
-        if(writeBytes < 0)
-          error("ERROR on WRITE");
-      }
-      else
-      {
-        printf("fail to send\n");
-      }
-    
-      if(setsockopt(rdt.sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-        error("ERROR SETTING TIMEOUT");
-
-      n = recvfrom(rdt.sockfd, rdt.initBuf, rdt.initBufSize, 0, (struct sockaddr *)&rdt.client, &rdt.clientLen);
-      if(!(n >= 0 && rdt.recieve_header->type == ACK))
-      {
-        printf("timeout\n");
       }
     }
-    tempSize -= interval;
-#endif
-  }while(rdt.recieve_header->ack < size);
+  } while(rdt.recieve_header->ack < size);
 
-
+  // Finish sending the packet
   rdt.send_header->type = FIN;
   rdt.send_header->ack = 0;
   rdt.send_header->seq = 0;
