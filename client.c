@@ -1,7 +1,7 @@
 
 /*
  A simple client in the internet domain using TCP
- Usage: ./client hostname port (./client 192.168.0.151 10000)
+ Usage: ./client hostname port probIgnore probCorrupt (./client 192.168.0.151 10000 0.0 0.0)
  */
 #include "packet_header.h"
 
@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <strings.h>
 
-const char OUTPUT_FILE_NAME[] = "out.txt";
+const char OUTPUT_FILE_NAME[] = "out";
 
 void error(char *msg)
 {
@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
         printf("Ignore packet %d...\n", recieve_header->seq);
         continue;
       }
-      else if (recieve_header->checksum == 0)
+      else if (recieve_header->checksum == 1)
       {
         printf("Corrupted packet %d...\n", recieve_header->seq);
         continue;
@@ -146,11 +146,13 @@ int main(int argc, char *argv[])
         success = ((rand() % 100) / 100.f);
         if (success > probCorrupt)
         {
-          send_header->checksum = 1;
+          printf("Sending ACK %d...\n", send_header->ack);
+          send_header->checksum = 0;
         }
         else
         {
-          send_header->checksum = 0;
+          printf("Sending corrupted ACK %d...\n", send_header->ack);
+          send_header->checksum = 1;
         }
 
         sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
