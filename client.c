@@ -143,7 +143,7 @@ int main(int argc, char *argv[])
         send_header->seq = recieve_header->ack;
 
         // Check if we need to create a corrupted ACK
-        success = ((rand() % 100) / 100.f);
+        /*success = ((rand() % 100) / 100.f);
         if (success > probCorrupt)
         {
           printf("Sending ACK %d...\n", send_header->ack);
@@ -153,7 +153,7 @@ int main(int argc, char *argv[])
         {
           printf("Sending corrupted ACK %d...\n", send_header->ack);
           send_header->checksum = 1;
-        }
+        }*/
 
         sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
       }
