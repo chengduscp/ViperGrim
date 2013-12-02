@@ -229,7 +229,8 @@ int main(int argc, char *argv[])
   cwnd = atoi(argv[2]);
   probIgnore = atof(argv[3]);
   probCorrupt = atof(argv[4]);
-
+  if(cwnd < sizeof(packet_header_t))
+    error("Invalid CWND");
 
   if(probIgnore < 0.0 || probIgnore > 1.0)
     probIgnore = 0.0;
