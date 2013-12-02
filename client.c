@@ -30,6 +30,8 @@ int main(int argc, char *argv[])
     struct hostent *server; //contains tons of information, including the server's IP address
     char send_buffer[1000];
     char buffer[1000];
+    int rand_seed;
+    float success;
     float probCorrupt;
     float probIgnore;
     char* fileName; 
@@ -92,6 +94,7 @@ int main(int argc, char *argv[])
            0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
 
     /* Start recieving data */
+    rand_seed = 0; // For dropping packets
     memset(buffer, 0, sizeof(buffer));
     recieve_header = (packet_header_t *)&buffer[0]; // header always points to the beginning of the data packet
     recieve_payload = getPayload(buffer, sizeof(buffer));
@@ -105,24 +108,52 @@ int main(int argc, char *argv[])
 
     memset(buffer,0, 1000);
     while(1)
-    {  
+    {
+      printf("\nRecieve Next header...\n");
       n = recvfrom(sockfd,buffer,1000, 0, NULL, NULL); //read from the socket
       if(recieve_header->type == FIN)
       {
         sleep(2);
         break;
       }
+      srand(rand_seed + time(NULL));
+      rand_seed += rand() % 256;
+      success = ((rand() % 100) / 100.f);
 
       printf("recieve seq = %d, send ack = %d\n", recieve_header->seq, send_header->ack);
+      printf("Ignore: %.2f vs %.2f\n", success, probIgnore);
       if (n < 0) 
            error("ERROR reading from socket");
-      else if(recieve_header->seq == send_header->ack) /* if seq corresponds with previous ack*/
+      else if (success < probIgnore)
       {
-         fwrite(recieve_payload, 1, recieve_header->len, output_file);
-         send_header->type = ACK;
-         send_header->ack = recieve_header->seq + recieve_header->len;
-         send_header->seq = recieve_header->ack;
-         sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+        printf("Ignore packet %d...\n", recieve_header->seq);
+        continue;
+      }
+      else if (recieve_header->checksum == 0)
+      {
+        printf("Corrupted packet %d...\n", recieve_header->seq);
+        continue;
+      }
+      // if seq corresponds with previous ack
+      else if(recieve_header->seq == send_header->ack) 
+      {
+        fwrite(recieve_payload, 1, recieve_header->len, output_file);
+        send_header->type = ACK;
+        send_header->ack = recieve_header->seq + recieve_header->len;
+        send_header->seq = recieve_header->ack;
+
+        // Check if we need to create a corrupted ACK
+        success = ((rand() % 100) / 100.f);
+        if (success > probCorrupt)
+        {
+          send_header->checksum = 1;
+        }
+        else
+        {
+          send_header->checksum = 0;
+        }
+
+        sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
       }
     }
     close(sockfd); //close socket
