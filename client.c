@@ -1,7 +1,7 @@
 
 /*
  A simple client in the internet domain using TCP
- Usage: ./client hostname port probIgnore probCorrupt (./client 192.168.0.151 10000 0.0 0.0)
+ Usage: ./client hostname port probLoss probCorrupt (./client 192.168.0.151 10000 0.0 0.0)
  */
 #include "packet_header.h"
 
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
     int rand_seed;
     float success;
     float probCorrupt;
-    float probIgnore;
+    float probLoss;
     char* fileName; 
     packet_header_t *recieve_header;
     char *recieve_payload;
@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
     int fileIdx;
     int i;
     if (argc < 3) {
-       fprintf(stderr,"usage %s hostname port filename probIgnore probCorrupt\n", argv[0]);
+       fprintf(stderr,"usage %s hostname port filename probLoss probCorrupt\n", argv[0]);
        exit(0);
     }
   
@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
         exit(0);
     }
     fileName = argv[3];
-    probIgnore = atof(argv[4]);
+    probLoss = atof(argv[4]);
     probCorrupt = atof(argv[5]);
 
     /* Create the output file */
@@ -67,13 +67,13 @@ int main(int argc, char *argv[])
     if (output_file == 0)
       error("ERROR opening output file");
 
-    if(probIgnore < 0.0 || probIgnore > 1.0)
-       probIgnore = 0.0;
+    if(probLoss < 0.0 || probLoss > 1.0)
+       probLoss = 0.0;
       
     if(probCorrupt < 0.0 || probCorrupt > 1.0)
        probCorrupt = 0.0;
 
-    printf("probCorrupt = %f, probIgnore = %f", probCorrupt, probIgnore);
+    printf("probCorrupt = %f, probLoss = %f", probCorrupt, probLoss);
 
     memset((char *) &serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET; //initialize server's address
@@ -116,19 +116,10 @@ int main(int argc, char *argv[])
         sleep(2);
         break;
       }
-      srand(rand_seed + time(NULL));
-      rand_seed += rand() % 256;
-      success = ((rand() % 100) / 100.f);
 
       printf("recieve seq = %d, send ack = %d\n", recieve_header->seq, send_header->ack);
-      printf("Ignore: %.2f vs %.2f\n", success, probIgnore);
       if (n < 0) 
            error("ERROR reading from socket");
-      else if (success < probIgnore)
-      {
-        printf("Ignore packet %d...\n", recieve_header->seq);
-        continue;
-      }
       else if (recieve_header->checksum == 1)
       {
         printf("Corrupted packet %d...\n", recieve_header->seq);
@@ -143,7 +134,9 @@ int main(int argc, char *argv[])
         send_header->seq = recieve_header->ack;
 
         // Check if we need to create a corrupted ACK
-        /*success = ((rand() % 100) / 100.f);
+        srand(rand_seed + time(NULL));
+        rand_seed += rand() % 256;
+        success = ((rand() % 100) / 100.f);
         if (success > probCorrupt)
         {
           printf("Sending ACK %d...\n", send_header->ack);
@@ -153,8 +146,41 @@ int main(int argc, char *argv[])
         {
           printf("Sending corrupted ACK %d...\n", send_header->ack);
           send_header->checksum = 1;
-        }*/
+        }
+        success = ((rand() % 100) / 100.f);
+        printf("Loss: %.2f vs %.2f\n", success, probLoss);
+        if (success < probLoss) {
+          printf("Dropped ACK %d...\n", send_header->ack);
+          continue;
+        }
 
+        sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+      }
+      else
+      {
+        srand(rand_seed + time(NULL));
+        rand_seed += rand() % 256;
+
+        success = ((rand() % 100) / 100.f);
+        if (success > probCorrupt)
+        {
+          printf("Sending ACK %d...\n", send_header->ack);
+          send_header->checksum = 0;
+        }
+        else
+        {
+          printf("Sending corrupted ACK %d...\n", send_header->ack);
+          send_header->checksum = 1;
+        }
+        
+        success = ((rand() % 100) / 100.f);
+        printf("Loss: %.2f vs %.2f\n", success, probLoss);
+        if (success < probLoss) {
+          printf("Dropped Resending ACK %d...\n", send_header->ack);
+          continue;
+        }
+
+        printf("Resending ACK %d...\n", send_header->ack);
         sendto(sockfd, send_buffer, sizeof(send_buffer), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
       }
     }
