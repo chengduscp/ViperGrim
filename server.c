@@ -450,7 +450,8 @@ int main(int argc, char *argv[])
         FD_CLR(rdt.sockfd, &write_set);
       }
     }
-  } while(rdt.recieve_header->ack < size);
+  } while(rdt.recieve_header->ack < size ||
+         (rdt.recieve_header->ack == size && rdt.recieve_header->checksum == 0));
 
   // Finish sending the packet
   rdt.send_header->type = FIN;
