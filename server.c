@@ -340,6 +340,7 @@ int main(int argc, char *argv[])
       {
         printf("Got corrupted ACK %d\n", rdt.recieve_header->ack);
         timeout_flag = 1;
+        FD_SET(rdt.sockfd, &write_set);
       }
       else
       {
@@ -374,10 +375,21 @@ int main(int argc, char *argv[])
             printf("Resending corrupted packet %d...\n", rdt.send_header->seq);
             rdt.send_header->checksum = 1;
           }
-          writeBytes = sendto(rdt.sockfd, rdt.sendNWin.packets[(rdt.sendNWin.start+i)%rdt.sendNWin.n].buf,
-                              1000,0,(struct sockaddr *)&rdt.client, rdt.clientLen);
-          if(writeBytes < 0)
-            error("ERROR on WRITE");
+
+          randNo = rand() % 100;
+          success = ((float)randNo)/100;
+          printf("Loss: %.2f vs %.2f\n", success, probLoss);
+          if(success > probLoss)
+          {
+            writeBytes = sendto(rdt.sockfd, rdt.sendNWin.packets[(rdt.sendNWin.start+i)%rdt.sendNWin.n].buf,
+                                1000,0,(struct sockaddr *)&rdt.client, rdt.clientLen);
+            if(writeBytes < 0)
+              error("ERROR on WRITE");
+          }
+          else
+          {
+            printf("Dropped packet %d\n", rdt.send_header->seq);
+          }
         }
 
         FD_CLR(rdt.sockfd, &write_set);
