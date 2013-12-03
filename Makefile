@@ -7,4 +7,4 @@ client: client.c
 	gcc -o client.exe client.c
 
 clean:
-	rm -f out.txt *.exe
+	rm -f out *.exe
